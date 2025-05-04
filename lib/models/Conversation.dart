@@ -19,15 +19,29 @@ class Conversation {
 
   factory Conversation.fromJson(Map<String, dynamic> json) {
     return Conversation(
-      id: json['_id'] ?? '',
-      recipientId: json['user']['_id'] ?? '',
-      recipientName: json['user']['name'] ?? '',
-      recipientEmail: json['user']['email'] ?? '',
-      lastMessage: json['lastMessage'] != null && json['lastMessage'].isNotEmpty
+      id: json['_id']?.toString() ?? '',
+      recipientId: json['user']?['_id']?.toString() ?? '',
+      recipientName: json['user']?['name']?.toString() ?? 'Unknown',
+      recipientEmail: json['user']?['email']?.toString() ?? '',
+      lastMessage: json['lastMessage'] != null
           ? Message.fromJson(json['lastMessage'])
           : null,
-      lastMessageAt: DateTime.parse(
-          json['lastMessageAt'] ?? DateTime.now().toIso8601String()),
+      lastMessageAt:
+          DateTime.tryParse(json['lastMessage']?['sentAt']?.toString() ?? '') ??
+              DateTime.now(),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      '_id': id,
+      'user': {
+        '_id': recipientId,
+        'name': recipientName,
+        'email': recipientEmail,
+      },
+      'lastMessage': lastMessage?.toJson(),
+      'lastMessageAt': lastMessageAt.toIso8601String(),
+    };
   }
 }

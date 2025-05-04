@@ -1,9 +1,9 @@
-import 'package:HealthChain/services/socket_service.dart';
 import 'package:flutter/material.dart';
-import '../models/message.dart';
-import '../models/conversation.dart';
-import '../services/api_service.dart';
-import './auth_provider.dart';
+import 'package:HealthChain/models/conversation.dart';
+import 'package:HealthChain/models/message.dart';
+import 'package:HealthChain/services/api_service.dart';
+import 'package:HealthChain/services/socket_service.dart';
+import 'package:HealthChain/providers/auth_provider.dart';
 import 'package:logger/logger.dart';
 
 class MessageProvider with ChangeNotifier {
@@ -75,14 +75,6 @@ class MessageProvider with ChangeNotifier {
   }
 
   Future<void> loadRecentConversations() async {
-    await fetchConversations();
-  }
-
-  Future<void> loadConversation(String otherUserId) async {
-    await fetchMessages(otherUserId);
-  }
-
-  Future<void> fetchConversations() async {
     if (!_authProvider.isAuthenticated) return;
     _isLoading = true;
     _error = null;
@@ -99,7 +91,7 @@ class MessageProvider with ChangeNotifier {
     }
   }
 
-  Future<void> fetchMessages(String otherUserId) async {
+  Future<void> loadConversation(String otherUserId) async {
     if (!_authProvider.isAuthenticated) return;
     _isLoading = true;
     _error = null;
@@ -115,6 +107,48 @@ class MessageProvider with ChangeNotifier {
       _isLoading = false;
       notifyListeners();
     }
+  }
+
+  void loadConversationsFromJson(List<dynamic> conversationJson) {
+    try {
+      _conversations = conversationJson.map((json) {
+        final data = json as Map<String, dynamic>;
+        return Conversation(
+          id: data['_id']?.toString() ?? '',
+          recipientId: data['user']?['_id']?.toString() ?? '',
+          recipientName: data['user']?['name']?.toString() ?? 'Unknown',
+          recipientEmail: data['user']?['email']?.toString() ??
+              '', // Fixed: Ensure non-null
+          lastMessage: data['lastMessage'] != null
+              ? Message(
+                  id: data['lastMessage']['_id']?.toString() ?? '',
+                  senderId: data['lastMessage']['senderId']?.toString() ?? '',
+                  recipientId:
+                      data['lastMessage']['recipientId']?.toString() ?? '',
+                  conversationId:
+                      data['lastMessage']['conversationId']?.toString() ?? '',
+                  content: data['lastMessage']['content']?.toString() ?? '',
+                  sentAt: DateTime.tryParse(
+                          data['lastMessage']['sentAt']?.toString() ?? '') ??
+                      DateTime.now(),
+                  isRead: data['lastMessage']['isRead'] as bool? ?? false,
+                  readAt: data['lastMessage']['readAt'] != null
+                      ? DateTime.tryParse(
+                          data['lastMessage']['readAt']?.toString() ?? '')
+                      : null,
+                )
+              : null,
+          lastMessageAt: DateTime.tryParse(
+                  data['lastMessage']?['sentAt']?.toString() ?? '') ??
+              DateTime.now(),
+        );
+      }).toList();
+      logger.i('Loaded ${_conversations.length} conversations from JSON');
+    } catch (e) {
+      logger.e('Error parsing conversations from JSON: $e');
+      _conversations = [];
+    }
+    notifyListeners();
   }
 
   Future<void> sendMessage(String recipientId, String content) async {

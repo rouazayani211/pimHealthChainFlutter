@@ -1,13 +1,13 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:HealthChain/providers/auth_provider.dart';
 import 'package:HealthChain/providers/message_provider.dart';
-import 'package:HealthChain/screens/messages/chat_screen.dart';
+import 'package:HealthChain/screens/messages/chat_screen.dart'; // Ensure correct import
 import 'package:HealthChain/utils/date_formatter.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:logger/logger.dart';
-import 'package:flutter_screenutil/flutter_screenutil.dart';
 
 class ConversationListScreen extends StatefulWidget {
   const ConversationListScreen({super.key});
@@ -22,28 +22,33 @@ class _ConversationListScreenState extends State<ConversationListScreen>
   late TabController _tabController;
   late MessageProvider _messageProvider;
   Timer? _refreshTimer;
-  bool _isInitialLoadComplete = false; // Track initial load completion
+  bool _isInitialLoadComplete = false;
+  SharedPreferences? _prefs;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _initSharedPreferences();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _messageProvider.connectSocket();
-      _messageProvider.loadRecentConversations().then((_) {
+      _loadConversations().then((_) {
         setState(() {
-          _isInitialLoadComplete = true; // Mark initial load as complete
+          _isInitialLoadComplete = true;
         });
       });
       logger.i('ConversationListScreen initialized');
-      // Start auto-refresh timer
       _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
         if (mounted) {
-          _messageProvider.loadRecentConversations();
+          _loadConversations();
           logger.i('Auto-refreshing conversations (silent)');
         }
       });
     });
+  }
+
+  Future<void> _initSharedPreferences() async {
+    _prefs = await SharedPreferences.getInstance();
   }
 
   @override
@@ -59,6 +64,35 @@ class _ConversationListScreenState extends State<ConversationListScreen>
     _messageProvider.disconnectSocket();
     logger.i('ConversationListScreen disposed');
     super.dispose();
+  }
+
+  Future<void> _loadConversations() async {
+    try {
+      // First, check SharedPreferences for cached conversations
+      if (_prefs != null) {
+        final String? cachedConversations = _prefs!.getString('conversations');
+        if (cachedConversations != null) {
+          final List<dynamic> conversationJson =
+              jsonDecode(cachedConversations);
+          _messageProvider.loadConversationsFromJson(conversationJson);
+          logger.i('Loaded conversations from SharedPreferences');
+        }
+      }
+
+      // Then, load fresh conversations from the server
+      await _messageProvider.loadRecentConversations();
+
+      // Save the updated conversations to SharedPreferences
+      if (_prefs != null) {
+        final String conversationsJson = jsonEncode(
+          _messageProvider.conversations.map((c) => c.toJson()).toList(),
+        );
+        await _prefs!.setString('conversations', conversationsJson);
+        logger.i('Saved conversations to SharedPreferences');
+      }
+    } catch (e) {
+      logger.e('Error loading conversations: $e');
+    }
   }
 
   @override
@@ -89,7 +123,6 @@ class _ConversationListScreenState extends State<ConversationListScreen>
       floatingActionButton: FloatingActionButton(
         onPressed: () {
           logger.i('New chat FAB pressed');
-          // TODO: Implement new chat functionality
         },
         child: const Icon(Icons.chat),
         backgroundColor: Theme.of(context).primaryColor,
@@ -100,7 +133,6 @@ class _ConversationListScreenState extends State<ConversationListScreen>
   Widget _buildConversationList() {
     return Consumer<MessageProvider>(
       builder: (context, messageProvider, child) {
-        // Show loading indicator only during initial load
         if (messageProvider.isLoading && !_isInitialLoadComplete) {
           return const Center(child: CircularProgressIndicator());
         }
@@ -232,14 +264,13 @@ class _ConversationListScreenState extends State<ConversationListScreen>
                     ],
                   ),
                   onTap: () {
-                    Navigator.push(
+                    Navigator.pushNamed(
                       context,
-                      MaterialPageRoute(
-                        builder: (context) => ChatScreen(
-                          recipientId: userId,
-                          recipientName: userName,
-                        ),
-                      ),
+                      '/chat',
+                      arguments: {
+                        'recipientId': userId,
+                        'recipientName': userName,
+                      },
                     );
                   },
                 ),

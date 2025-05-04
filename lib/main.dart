@@ -43,17 +43,35 @@ void main() async {
 
 class HealthChainApp extends StatelessWidget {
   final String initialRoute;
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
 
-  const HealthChainApp({super.key, required this.initialRoute});
+  HealthChainApp({super.key, required this.initialRoute});
 
   @override
   Widget build(BuildContext context) {
+    final socketService = Provider.of<WebSocketService>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+
+    // Set WebSocketService in AuthProvider
+    authProvider.setWebSocketService(socketService);
+
+    // Set navigator key for WebSocketService
+    socketService.setNavigatorKey(_navigatorKey);
+
+    // Initialize WebSocket if user is already logged in
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (authProvider.isAuthenticated) {
+        socketService.initializeSocket();
+      }
+    });
+
     return ScreenUtilInit(
       designSize: const Size(375, 812),
       minTextAdapt: true,
       splitScreenMode: true,
       builder: (context, child) {
         return MaterialApp(
+          navigatorKey: _navigatorKey,
           debugShowCheckedModeBanner: false,
           title: 'HealthChain',
           theme: ThemeData(

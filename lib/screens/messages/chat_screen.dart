@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:HealthChain/providers/auth_provider.dart';
 import 'package:HealthChain/providers/message_provider.dart';
 import 'package:HealthChain/screens/messages/components/message_bubble.dart';
+import 'package:HealthChain/services/socket_service.dart';
 import 'package:HealthChain/utils/date_formatter.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-
 import 'package:logger/logger.dart';
+import 'package:permission_handler/permission_handler.dart';
+import '../call/call_screen.dart';
 
 class ChatScreen extends StatefulWidget {
   final String recipientId;
@@ -28,7 +30,7 @@ class _ChatScreenState extends State<ChatScreen> {
   final ScrollController _scrollController = ScrollController();
   late MessageProvider _messageProvider;
   Timer? _refreshTimer;
-  bool _isInitialLoadComplete = false; // Track initial load completion
+  bool _isInitialLoadComplete = false;
 
   @override
   void initState() {
@@ -37,11 +39,10 @@ class _ChatScreenState extends State<ChatScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadMessages(context).then((_) {
         setState(() {
-          _isInitialLoadComplete = true; // Mark initial load as complete
+          _isInitialLoadComplete = true;
         });
       });
       logger.i('ChatScreen initialized for user ${widget.recipientName}');
-      // Start auto-refresh timer
       _refreshTimer = Timer.periodic(const Duration(seconds: 10), (timer) {
         if (mounted) {
           _loadMessages(context);
@@ -122,6 +123,78 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  Future<bool> _requestCallPermissions() async {
+    Map<Permission, PermissionStatus> statuses = await [
+      Permission.microphone,
+      Permission.bluetoothConnect,
+    ].request();
+
+    bool allGranted = true;
+    if (statuses[Permission.microphone] != PermissionStatus.granted) {
+      logger.w('Microphone permission denied');
+      allGranted = false;
+    }
+    if (statuses[Permission.bluetoothConnect] != PermissionStatus.granted) {
+      logger.w('Bluetooth connect permission denied');
+      allGranted = false;
+    }
+
+    if (!allGranted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text(
+                'Please grant microphone and Bluetooth permissions to make a call')),
+      );
+    }
+    return allGranted;
+  }
+
+  Future<void> _startAudioCall(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final socketService = Provider.of<WebSocketService>(context, listen: false);
+    if (authProvider.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to make a call')),
+      );
+      return;
+    }
+
+    // Request permissions before initiating the call
+    bool permissionsGranted = await _requestCallPermissions();
+    if (!permissionsGranted) return;
+
+    final currentUserId = authProvider.currentUser!.id;
+    final currentUserName = authProvider.currentUser!.name ?? 'User';
+    final callId =
+        '${currentUserId}_${widget.recipientId}_${DateTime.now().millisecondsSinceEpoch}';
+    logger.i(
+        'Initiating audio call with callID: $callId to ${widget.recipientName}');
+    socketService.emitCallEvent('start_call', {
+      'callId': callId,
+      'callerId': currentUserId,
+      'callerName': currentUserName,
+      'recipientId': widget.recipientId,
+      'recipientName': widget.recipientName,
+      'callType': 'audio',
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content:
+              Text('Call ID: $callId (waiting for ${widget.recipientName})')),
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CallScreen(
+          callID: callId,
+          userID: currentUserId,
+          userName: currentUserName,
+          isCaller: true,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Consumer2<AuthProvider, MessageProvider>(
@@ -135,8 +208,32 @@ class _ChatScreenState extends State<ChatScreen> {
         final currentUserId = authProvider.currentUser!.id;
         return Scaffold(
           appBar: AppBar(
+            leading: IconButton(
+              icon: const Icon(Icons.arrow_back),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
             title: Text(widget.recipientName),
-            backgroundColor: const Color(0xFF45B3CB),
+            backgroundColor: Colors.white,
+            foregroundColor: Colors.black,
+            elevation: 0,
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.videocam),
+                onPressed: () {
+                  logger.i('Video call initiated with ${widget.recipientName}');
+                },
+              ),
+              IconButton(
+                icon: const Icon(Icons.call),
+                onPressed: () => _startAudioCall(context),
+              ),
+              IconButton(
+                icon: const Icon(Icons.more_vert),
+                onPressed: () {
+                  logger.i('More options opened for ${widget.recipientName}');
+                },
+              ),
+            ],
           ),
           body: Column(
             children: [
@@ -167,35 +264,45 @@ class _ChatScreenState extends State<ChatScreen> {
                               ),
               ),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8.0),
-                height: 70,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8.0, vertical: 10.0),
                 color: Colors.white,
                 child: Row(
                   children: [
                     Expanded(
-                      child: TextField(
-                        controller: _messageController,
-                        decoration: InputDecoration(
-                          hintText: 'Type a message...',
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(30),
-                            borderSide: BorderSide.none,
-                          ),
-                          filled: true,
-                          fillColor: Colors.grey[200],
-                          contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 10),
+                      child: Container(
+                        decoration: BoxDecoration(
+                          color: Colors.grey[200],
+                          borderRadius: BorderRadius.circular(30),
                         ),
-                        textCapitalization: TextCapitalization.sentences,
-                        onSubmitted: (_) => _sendMessage(context),
+                        child: TextField(
+                          controller: _messageController,
+                          decoration: const InputDecoration(
+                            hintText: 'Type message ...',
+                            border: InputBorder.none,
+                            contentPadding: EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 10),
+                          ),
+                          textCapitalization: TextCapitalization.sentences,
+                          onSubmitted: (_) => _sendMessage(context),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 8),
-                    FloatingActionButton(
+                    ElevatedButton(
                       onPressed: () => _sendMessage(context),
-                      child: const Icon(Icons.send),
-                      backgroundColor: const Color(0xFF45B3CB),
-                      elevation: 0,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF45B3CB),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 15),
+                      ),
+                      child: const Text(
+                        'SEND',
+                        style: TextStyle(color: Colors.white),
+                      ),
                     ),
                   ],
                 ),

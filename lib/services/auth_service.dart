@@ -42,7 +42,7 @@ class AuthService {
         final token = data['token'];
         await saveToken(token);
 
-        // Extract user ID from token payload
+        // Extract user ID and email from token payload
         final tokenParts = token.split('.');
         if (tokenParts.length != 3) {
           throw Exception('Invalid JWT token');
@@ -53,13 +53,19 @@ class AuthService {
         final userId = payload['sub'];
         final userEmail = payload['email'];
 
-        // Create minimal User object
-        return User(
-          id: userId,
-          email: userEmail,
-          name: 'Unknown', // Placeholder, update if backend provides name
-          role: 'user', // Placeholder, update if backend provides role
-        );
+        // Fetch full user data using getCurrentUser
+        final user = await getCurrentUser(token);
+        if (user != null) {
+          return user;
+        } else {
+          // Fallback if getCurrentUser fails
+          return User(
+            id: userId,
+            email: userEmail,
+            name: 'Unknown',
+            role: 'user',
+          );
+        }
       } else {
         final errorMessage = _parseError(response);
         throw Exception('Failed to login: $errorMessage');
@@ -70,12 +76,7 @@ class AuthService {
     }
   }
 
-  Future<User?> getCurrentUser() async {
-    final token = await getToken();
-    if (token == null) {
-      logger.w('No token found for getCurrentUser');
-      return null;
-    }
+  Future<User?> getCurrentUser(String token) async {
     try {
       final response = await http.get(
         Uri.parse('$baseUrl/users/me'),
@@ -95,6 +96,32 @@ class AuthService {
     } catch (e) {
       logger.e('Error getting current user: $e');
       return null; // Gracefully handle failure
+    }
+  }
+
+  Future<String> refreshToken(String token) async {
+    try {
+      final response = await http.post(
+        Uri.parse('$baseUrl/auth/refresh-token'),
+        headers: {
+          'Authorization': 'Bearer $token',
+          'Content-Type': 'application/json',
+        },
+      );
+      logger.i(
+          'Refresh token response: ${response.statusCode} - ${response.body}');
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        final newToken = data['token'];
+        await saveToken(newToken);
+        return newToken;
+      } else {
+        final errorMessage = _parseError(response);
+        throw Exception('Failed to refresh token: $errorMessage');
+      }
+    } catch (e) {
+      logger.e('Refresh token error: $e');
+      throw Exception('Failed to refresh token: $e');
     }
   }
 

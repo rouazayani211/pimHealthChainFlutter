@@ -18,6 +18,9 @@ dependencies:
   curved_navigation_bar: ^1.0.3
   socket_io_client: ^2.0.3+1
   logger: ^1.0.0
+  zego_uikit_prebuilt_call: ^4.16.28
+  permission_handler: ^11.3.1
+  flutter_local_notifications: ^17.2.3 # Updated to latest version
 
 dev_dependencies:
   flutter_test:
