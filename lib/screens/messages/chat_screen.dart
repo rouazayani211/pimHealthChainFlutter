@@ -127,6 +127,7 @@ class _ChatScreenState extends State<ChatScreen> {
     Map<Permission, PermissionStatus> statuses = await [
       Permission.microphone,
       Permission.bluetoothConnect,
+      Permission.camera, // Added for video calls
     ].request();
 
     bool allGranted = true;
@@ -138,12 +139,17 @@ class _ChatScreenState extends State<ChatScreen> {
       logger.w('Bluetooth connect permission denied');
       allGranted = false;
     }
+    if (statuses[Permission.camera] != PermissionStatus.granted &&
+        widget.recipientName.contains('video')) {
+      logger.w('Camera permission denied');
+      allGranted = false;
+    }
 
     if (!allGranted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text(
-                'Please grant microphone and Bluetooth permissions to make a call')),
+                'Please grant microphone, camera, and Bluetooth permissions to make a call')),
       );
     }
     return allGranted;
@@ -164,7 +170,8 @@ class _ChatScreenState extends State<ChatScreen> {
     if (!permissionsGranted) return;
 
     final currentUserId = authProvider.currentUser!.id;
-    final currentUserName = authProvider.currentUser!.name ?? 'User';
+    final currentUserName = authProvider.currentUser!.name ??
+        'Unknown'; // Ensure caller name is fetched
     final callId =
         '${currentUserId}_${widget.recipientId}_${DateTime.now().millisecondsSinceEpoch}';
     logger.i(
@@ -188,8 +195,57 @@ class _ChatScreenState extends State<ChatScreen> {
         builder: (context) => CallScreen(
           callID: callId,
           userID: currentUserId,
-          userName: currentUserName,
+          userName: widget.recipientName,
           isCaller: true,
+          isVideoCall: false,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _startVideoCall(BuildContext context) async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final socketService = Provider.of<WebSocketService>(context, listen: false);
+    if (authProvider.currentUser == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please log in to make a call')),
+      );
+      return;
+    }
+
+    // Request permissions before initiating the call
+    bool permissionsGranted = await _requestCallPermissions();
+    if (!permissionsGranted) return;
+
+    final currentUserId = authProvider.currentUser!.id;
+    final currentUserName = authProvider.currentUser!.name ??
+        'Unknown'; // Ensure caller name is fetched
+    final callId =
+        '${currentUserId}_${widget.recipientId}_${DateTime.now().millisecondsSinceEpoch}';
+    logger.i(
+        'Initiating video call with callID: $callId to ${widget.recipientName}');
+    socketService.emitCallEvent('start_call', {
+      'callId': callId,
+      'callerId': currentUserId,
+      'callerName': currentUserName,
+      'recipientId': widget.recipientId,
+      'recipientName': widget.recipientName,
+      'callType': 'video',
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+          content:
+              Text('Call ID: $callId (waiting for ${widget.recipientName})')),
+    );
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CallScreen(
+          callID: callId,
+          userID: currentUserId,
+          userName: widget.recipientName,
+          isCaller: true,
+          isVideoCall: true,
         ),
       ),
     );
@@ -219,9 +275,7 @@ class _ChatScreenState extends State<ChatScreen> {
             actions: [
               IconButton(
                 icon: const Icon(Icons.videocam),
-                onPressed: () {
-                  logger.i('Video call initiated with ${widget.recipientName}');
-                },
+                onPressed: () => _startVideoCall(context),
               ),
               IconButton(
                 icon: const Icon(Icons.call),

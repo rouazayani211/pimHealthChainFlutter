@@ -21,6 +21,7 @@ dependencies:
   zego_uikit_prebuilt_call: ^4.16.28
   permission_handler: ^11.3.1
   flutter_local_notifications: ^17.2.3 # Updated to latest version
+  flutter_ringtone_player: ^4.0.0+2 # Added for ringtone sound
 
 dev_dependencies:
   flutter_test:

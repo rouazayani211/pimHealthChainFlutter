@@ -1,29 +1,50 @@
 import 'package:HealthChain/providers/auth_provider.dart';
-import 'package:HealthChain/services/notification_service.dart';
 import 'package:HealthChain/services/socket_service.dart';
+import 'package:HealthChain/services/notification_service.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:logger/logger.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import 'call_screen.dart';
 
-class IncomingCallScreen extends StatelessWidget {
+class IncomingCallScreen extends StatefulWidget {
   final String callID;
   final String callerID;
   final String callerName;
-  final Logger logger = Logger();
 
-  IncomingCallScreen({
+  const IncomingCallScreen({
     Key? key,
     required this.callID,
     required this.callerID,
     required this.callerName,
   }) : super(key: key);
 
+  @override
+  _IncomingCallScreenState createState() => _IncomingCallScreenState();
+}
+
+class _IncomingCallScreenState extends State<IncomingCallScreen> {
+  final Logger logger = Logger();
+  final FlutterRingtonePlayer _ringtonePlayer = FlutterRingtonePlayer();
+
+  @override
+  void initState() {
+    super.initState();
+    // Play ringtone when the screen is displayed
+    _ringtonePlayer.play(
+      android: AndroidSounds.ringtone,
+      ios: IosSounds.glass,
+      looping: true,
+      volume: 1.0,
+    );
+  }
+
   Future<bool> _requestCallPermissions(BuildContext context) async {
     Map<Permission, PermissionStatus> statuses = await [
       Permission.microphone,
       Permission.bluetoothConnect,
+      Permission.camera,
     ].request();
 
     bool allGranted = true;
@@ -35,12 +56,16 @@ class IncomingCallScreen extends StatelessWidget {
       logger.w('Bluetooth connect permission denied');
       allGranted = false;
     }
+    if (statuses[Permission.camera] != PermissionStatus.granted) {
+      logger.w('Camera permission denied');
+      allGranted = false;
+    }
 
     if (!allGranted) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
             content: Text(
-                'Please grant microphone and Bluetooth permissions to accept the call')),
+                'Please grant microphone, camera, and Bluetooth permissions to accept the call')),
       );
     }
     return allGranted;
@@ -61,20 +86,22 @@ class IncomingCallScreen extends StatelessWidget {
       return;
     }
     socketService.emitCallEvent('accept_call', {
-      'callId': callID,
-      'callerId': callerID,
+      'callId': widget.callID,
+      'callerId': widget.callerID,
       'recipientId': userId,
     });
-    // Cancel the notification
+    // Stop the ringtone
+    _ringtonePlayer.stop();
     NotificationService().cancelAllNotifications();
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
         builder: (context) => CallScreen(
-          callID: callID,
+          callID: widget.callID,
           userID: userId,
-          userName: userName,
+          userName: widget.callerName,
           isCaller: false,
+          isVideoCall: false, // Adjust based on callType if needed
         ),
       ),
     );
@@ -89,10 +116,11 @@ class IncomingCallScreen extends StatelessWidget {
       return;
     }
     socketService.emitCallEvent('reject_call', {
-      'callId': callID,
+      'callId': widget.callID,
       'userId': userId,
     });
-    // Cancel the notification
+    // Stop the ringtone
+    _ringtonePlayer.stop();
     NotificationService().cancelAllNotifications();
     Navigator.of(context).pop();
   }
@@ -105,7 +133,7 @@ class IncomingCallScreen extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              'Incoming Call from $callerName',
+              'Incoming Call from ${widget.callerName}',
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 20),
@@ -120,6 +148,8 @@ class IncomingCallScreen extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 30, vertical: 15),
                   ),
                   child: const Text('Accept'),
                 ),
@@ -132,6 +162,8 @@ class IncomingCallScreen extends StatelessWidget {
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10),
                     ),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 30, vertical: 15),
                   ),
                   child: const Text('Reject'),
                 ),
@@ -141,5 +173,12 @@ class IncomingCallScreen extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  @override
+  void dispose() {
+    // Stop the ringtone when the screen is disposed
+    _ringtonePlayer.stop();
+    super.dispose();
   }
 }

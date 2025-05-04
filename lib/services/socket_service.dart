@@ -3,6 +3,7 @@ import 'package:HealthChain/providers/auth_provider.dart';
 import 'package:socket_io_client/socket_io_client.dart' as IO;
 import 'package:logger/logger.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_ringtone_player/flutter_ringtone_player.dart';
 import '../services/notification_service.dart';
 
 class WebSocketService {
@@ -17,6 +18,7 @@ class WebSocketService {
   GlobalKey<NavigatorState>? _navigatorKey;
   int _reconnectAttempts = 0;
   static const int _maxReconnectAttempts = 5;
+  final FlutterRingtonePlayer _ringtonePlayer = FlutterRingtonePlayer();
 
   WebSocketService(this._authProvider);
 
@@ -25,7 +27,6 @@ class WebSocketService {
   void setNavigatorKey(GlobalKey<NavigatorState> navigatorKey) {
     _navigatorKey = navigatorKey;
     logger.i('Navigator key set for WebSocketService');
-    // Initialize notifications with the navigator key
     NotificationService().initialize(navigatorKey);
   }
 
@@ -163,6 +164,14 @@ class WebSocketService {
           callerName: data['callerName'],
         );
 
+        // Play ringtone
+        _ringtonePlayer.play(
+          android: AndroidSounds.ringtone,
+          ios: IosSounds.glass,
+          looping: true,
+          volume: 1.0,
+        );
+
         // Navigate to IncomingCallScreen
         logger.i(
             'Navigating to IncomingCallScreen for user $userId with callID: ${data['callId']}');
@@ -229,7 +238,8 @@ class WebSocketService {
             const SnackBar(content: Text('Call rejected by recipient')),
           );
         }
-        // Cancel any notifications
+        // Stop ringtone and cancel notifications
+        _ringtonePlayer.stop();
         NotificationService().cancelAllNotifications();
       }
     });
@@ -241,8 +251,8 @@ class WebSocketService {
       if (userId == data['callerId']) {
         logger.i(
             'Call accepted by recipient for user $userId with callID: ${data['callId']}');
-        // CallScreen should already be open; no navigation needed for caller
-        // Cancel any notifications
+        // Stop ringtone and cancel notifications
+        _ringtonePlayer.stop();
         NotificationService().cancelAllNotifications();
       }
     });
