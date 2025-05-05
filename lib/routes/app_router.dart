@@ -9,7 +9,9 @@ import '../screens/bottom_nav_bar.dart';
 import '../screens/home_screen.dart';
 import '../screens/messages/conversation_list_screen.dart';
 import '../screens/messages/chat_screen.dart';
+import '../screens/messages/direct_conversation_screen.dart';
 import '../screens/documents_screen.dart';
+import '../screens/file_upload_screen.dart';
 import '../screens/rdv_screen.dart';
 import '../screens/profile_screen.dart';
 import '../screens/notification_screen.dart';
@@ -28,6 +30,7 @@ class AppRouter {
       case '/home':
         return MaterialPageRoute(builder: (_) => BottomNavBar());
       case '/conversations':
+      case '/messages':
         return MaterialPageRoute(builder: (_) => ConversationListScreen());
       case '/chat':
         final args = settings.arguments as Map<String, dynamic>?;
@@ -46,8 +49,37 @@ class AppRouter {
             recipientName: args['recipientName'],
           ),
         );
+      case '/direct-chat':
+        final args = settings.arguments as Map<String, dynamic>?;
+        if (args == null || !args.containsKey('userId')) {
+          // Hardcoded ID for testing
+          return MaterialPageRoute(
+            builder: (_) => const DirectConversationScreen(
+              userId: '6817e404d2f32269d6c6c59d',
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => DirectConversationScreen(
+            userId: args['userId'],
+          ),
+        );
       case '/documents':
         return MaterialPageRoute(builder: (_) => DocumentsScreen());
+      case '/file-upload':
+        final args = settings.arguments as Map<String, dynamic>?;
+        if (args == null || !args.containsKey('category')) {
+          return MaterialPageRoute(
+            builder: (_) => const Scaffold(
+              body: Center(child: Text('Error: Missing file upload parameters')),
+            ),
+          );
+        }
+        return MaterialPageRoute(
+          builder: (_) => FileUploadScreen(
+            category: args['category'],
+          ),
+        );
       case '/rdv':
         return MaterialPageRoute(builder: (_) => RdvScreen());
       case '/profile':
@@ -74,6 +106,7 @@ class AppRouter {
             userID: args['userID'],
             userName: args['userName'],
             isCaller: args['isCaller'] ?? false,
+            isVideoCall: args['isVideoCall'] ?? false,
           ),
         );
       case '/incoming-call':

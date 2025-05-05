@@ -11,11 +11,7 @@ import './config/app_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  final prefs = await SharedPreferences.getInstance();
-  final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-  final rememberMe = prefs.getBool('rememberMe') ?? false;
-  final initialRoute = (isLoggedIn && rememberMe) ? '/bottomNavBar' : '/login';
-
+  
   runApp(
     MultiProvider(
       providers: [
@@ -36,35 +32,64 @@ void main() async {
           ),
         ),
       ],
-      child: HealthChainApp(initialRoute: initialRoute),
+      child: const HealthChainApp(),
     ),
   );
 }
 
-class HealthChainApp extends StatelessWidget {
-  final String initialRoute;
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+class HealthChainApp extends StatefulWidget {
+  const HealthChainApp({super.key});
 
-  HealthChainApp({super.key, required this.initialRoute});
+  @override
+  State<HealthChainApp> createState() => _HealthChainAppState();
+}
+
+class _HealthChainAppState extends State<HealthChainApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  bool _isInitializing = true;
+  String _initialRoute = '/login';
+
+  @override
+  void initState() {
+    super.initState();
+    _initializeApp();
+  }
+
+  Future<void> _initializeApp() async {
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
+    final socketService = Provider.of<WebSocketService>(context, listen: false);
+    
+    // Set WebSocketService in AuthProvider
+    authProvider.setWebSocketService(socketService);
+    
+    // Set navigator key for WebSocketService
+    socketService.setNavigatorKey(_navigatorKey);
+    
+    // Initialize auth state (check for cached user)
+    await authProvider.initializeAuth();
+    
+    setState(() {
+      _initialRoute = authProvider.isAuthenticated ? '/bottomNavBar' : '/login';
+      _isInitializing = false;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    final socketService = Provider.of<WebSocketService>(context, listen: false);
-    final authProvider = Provider.of<AuthProvider>(context, listen: false);
-
-    // Set WebSocketService in AuthProvider
-    authProvider.setWebSocketService(socketService);
-
-    // Set navigator key for WebSocketService
-    socketService.setNavigatorKey(_navigatorKey);
-
-    // Initialize WebSocket if user is already logged in
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (authProvider.isAuthenticated) {
-        socketService.initializeSocket();
-      }
-    });
-
+    // If still initializing, show a loading screen
+    if (_isInitializing) {
+      return MaterialApp(
+        debugShowCheckedModeBanner: false,
+        home: Scaffold(
+          body: Center(
+            child: CircularProgressIndicator(
+              color: const Color(0xFF45B3CB),
+            ),
+          ),
+        ),
+      );
+    }
+    
     return ScreenUtilInit(
       designSize: const Size(375, 812),
       minTextAdapt: true,
@@ -100,7 +125,7 @@ class HealthChainApp extends StatelessWidget {
               ),
             ),
           ),
-          initialRoute: initialRoute,
+          initialRoute: _initialRoute,
           onGenerateRoute: AppRouter.generateRoute,
         );
       },

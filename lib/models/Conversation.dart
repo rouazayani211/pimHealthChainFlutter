@@ -5,6 +5,7 @@ class Conversation {
   final String recipientId;
   final String recipientName;
   final String recipientEmail;
+  final String? recipientPhoto;
   final Message? lastMessage;
   final DateTime lastMessageAt;
 
@@ -13,6 +14,7 @@ class Conversation {
     required this.recipientId,
     required this.recipientName,
     required this.recipientEmail,
+    this.recipientPhoto,
     this.lastMessage,
     required this.lastMessageAt,
   });
@@ -23,6 +25,7 @@ class Conversation {
       recipientId: json['user']?['_id']?.toString() ?? '',
       recipientName: json['user']?['name']?.toString() ?? 'Unknown',
       recipientEmail: json['user']?['email']?.toString() ?? '',
+      recipientPhoto: json['user']?['photo']?.toString(),
       lastMessage: json['lastMessage'] != null
           ? Message.fromJson(json['lastMessage'])
           : null,
@@ -39,6 +42,7 @@ class Conversation {
         '_id': recipientId,
         'name': recipientName,
         'email': recipientEmail,
+        'photo': recipientPhoto,
       },
       'lastMessage': lastMessage?.toJson(),
       'lastMessageAt': lastMessageAt.toIso8601String(),

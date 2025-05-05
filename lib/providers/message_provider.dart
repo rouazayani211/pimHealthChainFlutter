@@ -74,6 +74,13 @@ class MessageProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // Method to directly update the messages list
+  void updateMessages(List<Message> messages) {
+    _messages = messages;
+    notifyListeners();
+    logger.i('Updated messages list with ${messages.length} messages');
+  }
+
   Future<void> loadRecentConversations() async {
     if (!_authProvider.isAuthenticated) return;
     _isLoading = true;
@@ -119,6 +126,7 @@ class MessageProvider with ChangeNotifier {
           recipientName: data['user']?['name']?.toString() ?? 'Unknown',
           recipientEmail: data['user']?['email']?.toString() ??
               '', // Fixed: Ensure non-null
+          recipientPhoto: data['user']?['photo']?.toString(),
           lastMessage: data['lastMessage'] != null
               ? Message(
                   id: data['lastMessage']['_id']?.toString() ?? '',
@@ -205,6 +213,7 @@ class MessageProvider with ChangeNotifier {
         recipientId: _conversations[index].recipientId,
         recipientName: _conversations[index].recipientName,
         recipientEmail: _conversations[index].recipientEmail,
+        recipientPhoto: _conversations[index].recipientPhoto,
         lastMessage: message,
         lastMessageAt: message.sentAt,
       );

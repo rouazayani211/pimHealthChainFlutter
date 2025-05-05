@@ -11,15 +11,49 @@ class AuthProvider with ChangeNotifier {
   bool _isLoading = false;
   String? _error;
   bool _isAuthenticated = false;
+  bool _isInitialized = false;
   WebSocketService? _webSocketService; // To initialize WebSocket after login
 
   User? get currentUser => _currentUser;
   bool get isLoading => _isLoading;
   String? get error => _error;
   bool get isAuthenticated => _isAuthenticated;
+  bool get isInitialized => _isInitialized;
 
   void setWebSocketService(WebSocketService webSocketService) {
     _webSocketService = webSocketService;
+  }
+  
+  // Initialize the auth state by checking for cached user information
+  Future<void> initializeAuth() async {
+    if (_isInitialized) return;
+    
+    try {
+      _isLoading = true;
+      notifyListeners();
+      
+      // Try to get user from SharedPreferences
+      final user = await _authService.tryAutoLogin();
+      if (user != null) {
+        _currentUser = user;
+        _isAuthenticated = true;
+        logger.i('Auto-login successful for: ${user.name}');
+        
+        // Initialize WebSocket connection after auto-login
+        if (_webSocketService != null) {
+          await _webSocketService!.initializeSocket();
+          logger.i('WebSocket initialized after auto-login for user: ${user.id}');
+        }
+      } else {
+        logger.i('No cached credentials found for auto-login');
+      }
+    } catch (e) {
+      logger.e('Error during auth initialization: $e');
+    } finally {
+      _isLoading = false;
+      _isInitialized = true;
+      notifyListeners();
+    }
   }
 
   Future<bool> login(String email, String password) async {
@@ -31,6 +65,18 @@ class AuthProvider with ChangeNotifier {
       _currentUser = user;
       _isAuthenticated = true;
       logger.i('Login successful for user: ${user.email}, name: ${user.name}');
+      logger.i('User photo path: ${user.photo ?? "null"}');
+      
+      if (user.photo != null) {
+        logger.i('Photo URL format check:');
+        if (user.photo!.startsWith('http')) {
+          logger.i('Photo is already a full URL: ${user.photo}');
+        } else if (user.photo!.startsWith('/uploads')) {
+          logger.i('Photo is a server path starting with /uploads: ${user.photo}');
+        } else {
+          logger.i('Photo is a relative path: ${user.photo}');
+        }
+      }
 
       // Initialize WebSocket connection after login
       if (_webSocketService != null) {
@@ -89,6 +135,7 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> logout() async {
     await _authService.clearToken();
+    await _authService.clearUserFromPrefs(); // Clear all user data
     _currentUser = null;
     _isAuthenticated = false;
     _error = null;
@@ -101,5 +148,18 @@ class AuthProvider with ChangeNotifier {
     }
 
     notifyListeners();
+  }
+  
+  // Update user information in memory and SharedPreferences
+  Future<void> updateUserInfo(User updatedUser) async {
+    try {
+      await _authService.saveUserToPrefs(updatedUser);
+      _currentUser = updatedUser;
+      logger.i('User information updated: ${updatedUser.name}');
+      notifyListeners();
+    } catch (e) {
+      logger.e('Failed to update user information: $e');
+      throw Exception('Failed to update user information: $e');
+    }
   }
 }

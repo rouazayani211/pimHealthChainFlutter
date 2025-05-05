@@ -22,6 +22,9 @@ dependencies:
   permission_handler: ^11.3.1
   flutter_local_notifications: ^17.2.3 # Updated to latest version
   flutter_ringtone_player: ^4.0.0+2 # Added for ringtone sound
+  image_picker: ^1.1.2
+  file_picker: ^8.3.7 # Updated for compatibility with zego_uikit
+  mime: ^1.0.4 # For MIME type detection
 
 dev_dependencies:
   flutter_test:

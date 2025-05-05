@@ -1,11 +1,16 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../models/message.dart';
 import '../models/conversation.dart';
+import '../models/doctor.dart';
 import 'auth_service.dart';
 import 'package:logger/logger.dart';
+import 'package:mime/mime.dart';
+import 'package:http_parser/http_parser.dart'
+    as http_parser; // Import http_parser for MediaType
 
 class ApiService {
   final String baseUrl = AppConfig.apiBaseUrl;
@@ -23,32 +28,62 @@ class ApiService {
     String email,
     String password,
     String name,
-    String role,
-  ) async {
-    logger.i('Sending signup request: email=$email, name=$name, role=$role');
+    String role, {
+    String? doctorId,
+    File? profilePhoto,
+  }) async {
+    logger.i(
+        'Sending signup request: email=$email, name=$name, role=$role, doctorId=$doctorId, hasPhoto=${profilePhoto != null}, photoPath=${profilePhoto?.path}');
     try {
-      final response = await http.post(
+      var request = http.MultipartRequest(
+        'POST',
         Uri.parse('$baseUrl/users/signup'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'email': email,
-          'password': password,
-          'name': name,
-          'role': role,
-          'photo': null,
-        }),
       );
-      logger.i('Signup response: ${response.statusCode} - ${response.body}');
+
+      // Add text fields
+      request.fields['email'] = email;
+      request.fields['password'] = password;
+      request.fields['name'] = name;
+      request.fields['role'] = role;
+      if (doctorId != null && role == 'doctor') {
+        request.fields['doctorId'] = doctorId;
+      }
+
+      // Add profile photo if provided
+      if (profilePhoto != null) {
+        final fileExtension = profilePhoto.path.split('.').last.toLowerCase();
+        final mimeType =
+            lookupMimeType(profilePhoto.path) ?? 'application/octet-stream';
+        final fileSize = await profilePhoto.length();
+        logger.i(
+            'Uploading photo: path=${profilePhoto.path}, extension=$fileExtension, mimeType=$mimeType, size=$fileSize bytes');
+        request.files.add(await http.MultipartFile.fromPath(
+          'photo',
+          profilePhoto.path,
+          contentType:
+              mimeType != null ? http_parser.MediaType.parse(mimeType) : null,
+        ));
+      }
+
+      // Send the request
+      final response = await request.send();
+      final responseBody = await response.stream.bytesToString();
+
+      logger.i('Signup response: ${response.statusCode} - $responseBody');
+
       if (response.statusCode == 201) {
-        final userId = jsonDecode(response.body)['user']['_id'];
+        final data = jsonDecode(responseBody);
+        final userId = data['user']['_id'];
         return userId;
       } else {
-        final errorMessage = _parseError(response);
-        throw Exception('Failed to sign up: $errorMessage');
+        final errorMessage =
+            _parseMultipartError(responseBody, response.statusCode);
+        throw Exception(errorMessage);
       }
     } catch (e) {
       logger.e('Signup error: $e');
-      throw Exception('Signup failed: $e');
+      throw Exception(
+          'Signup failed: ${e.toString().replaceFirst('Exception: ', '')}');
     }
   }
 
@@ -102,7 +137,10 @@ class ApiService {
   }
 
   Future<void> resetPassword(
-      String email, String otp, String newPassword) async {
+    String email,
+    String otp,
+    String newPassword,
+  ) async {
     logger.i('Sending reset password request: email=$email');
     try {
       final response = await http.post(
@@ -252,6 +290,97 @@ class ApiService {
           'Unknown error (status: ${response.statusCode})';
     } catch (_) {
       return 'Unknown error (status: ${response.statusCode})';
+    }
+  }
+
+  String _parseMultipartError(String responseBody, int statusCode) {
+    try {
+      final body = jsonDecode(responseBody);
+      return body['message'] ?? 'Unknown error (status: $statusCode)';
+    } catch (_) {
+      return 'Unknown error (status: $statusCode)';
+    }
+  }
+
+  Future<List<Doctor>> getDoctors() async {
+    final token = await _authService.getToken();
+    logger.i('Fetching doctors from API');
+    
+    try {
+      final headers = token != null 
+          ? {
+              'Authorization': 'Bearer $token',
+              'Content-Type': 'application/json',
+            }
+          : {'Content-Type': 'application/json'};
+          
+      final response = await http.get(
+        Uri.parse('$baseUrl/users/doctors'),
+        headers: headers,
+      );
+      
+      logger.i('Get doctors response: ${response.statusCode}');
+      
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        
+        // Handle different response structures
+        if (data is List) {
+          // If response is already a list of doctors
+          return data.map((json) => Doctor.fromJson(json)).toList();
+        } else if (data is Map) {
+          // If response is a map/object that contains doctors
+          // Check if there's a 'doctors' field or similar
+          if (data.containsKey('doctors') && data['doctors'] is List) {
+            return (data['doctors'] as List)
+                .map((json) => Doctor.fromJson(json))
+                .toList();
+          } else if (data.containsKey('data') && data['data'] is List) {
+            return (data['data'] as List)
+                .map((json) => Doctor.fromJson(json))
+                .toList();
+          } else if (data.containsKey('results') && data['results'] is List) {
+            return (data['results'] as List)
+                .map((json) => Doctor.fromJson(json))
+                .toList();
+          } else {
+            // Log the response structure to help debug
+            logger.i('Response structure: ${data.keys.join(', ')}');
+            
+            // As a fallback, try to extract all values in the map that look like doctors
+            try {
+              final extractedDoctors = <Doctor>[];
+              data.forEach((key, value) {
+                if (value is Map<String, dynamic> && 
+                    (value.containsKey('name') || value.containsKey('id') || value.containsKey('_id'))) {
+                  extractedDoctors.add(Doctor.fromJson(value));
+                } else if (value is List) {
+                  extractedDoctors.addAll(
+                    value.whereType<Map<String, dynamic>>()
+                        .map((item) => Doctor.fromJson(item))
+                  );
+                }
+              });
+              
+              if (extractedDoctors.isNotEmpty) {
+                return extractedDoctors;
+              }
+            } catch (e) {
+              logger.e('Error extracting doctors from response: $e');
+            }
+            
+            throw Exception('Could not parse doctors from response. Structure: ${data.keys.join(', ')}');
+          }
+        }
+        
+        throw Exception('Unexpected response format');
+      } else {
+        final errorMessage = _parseError(response);
+        throw Exception('Failed to fetch doctors: $errorMessage');
+      }
+    } catch (e) {
+      logger.e('Error fetching doctors: $e');
+      throw Exception('Failed to fetch doctors: $e');
     }
   }
 }
